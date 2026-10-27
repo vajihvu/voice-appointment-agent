@@ -48,6 +48,10 @@
   2. Word count $\ge 2$ words.
   3. STT confidence $\ge 0.70$.
   4. Debounce duration: Speech must persist longer than $200\text{ms}$ after initial detection before issuing `clearAudio` to Plivo and cancelling the playback task.
+- **Playback Completion Estimation (Phase 4 Implementation Note)**:
+  - Plivo does not send a "playback finished" marker event over the WebSocket.
+  - Therefore, playback completion is estimated from audio duration ($8000\text{ bytes/second}$ for 8kHz $\mu$-law mono: $\text{Duration (s)} = \frac{\text{Audio Bytes}}{8000}$).
+  - Plivo buffers audio on the telephony edge, so this duration is an approximation that will be tuned and measured empirically rather than treated as an exact value.
 
 ## Decision 5: Slot Reservation Concurrency & Transactional Safety
 - **SQLite Concurrency & Row Locking Reality**:

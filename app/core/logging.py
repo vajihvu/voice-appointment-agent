@@ -7,6 +7,11 @@ import sys
 # Regex pattern for international and standard phone numbers (e.g. +91 9876543210 or 9876543210)
 PHONE_REGEX = re.compile(r"(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}")
 
+# Regex pattern for sensitive tokens, auth keys, and bearer tokens
+SECRET_REGEX = re.compile(
+    r"(?i)\b(auth[_-]?token|auth[_-]?id|api[_-]?key|secret|bearer|password)\b(\s*[:=]\s*|\s+)([^\s\"',;]{4,})"
+)
+
 
 def mask_phone_number(phone: str | None) -> str:
     """Masks a phone number to protect caller privacy.
@@ -35,18 +40,29 @@ def mask_phone_number(phone: str | None) -> str:
         return f"{prefix}{stars}{suffix}"
 
 
-
 class PIIMaskingFormatter(logging.Formatter):
-    """Custom logging formatter that scrubs sensitive PII (phone numbers) from log messages."""
+    """Custom logging formatter that scrubs sensitive PII (phone numbers) and credentials from log messages."""
 
     def format(self, record: logging.LogRecord) -> str:
-        original = super().format(record)
-        # Search and mask phone occurrences in log output
-        def repl(match: re.Match[str]) -> str:
+        formatted = super().format(record)
+
+        # 1. Mask phone numbers
+        def repl_phone(match: re.Match[str]) -> str:
             raw = match.group(0)
             return mask_phone_number(raw)
 
-        return PHONE_REGEX.sub(repl, original)
+        cleaned = PHONE_REGEX.sub(repl_phone, formatted)
+
+        # 2. Mask secrets, auth tokens, and API keys
+        def repl_secret(match: re.Match[str]) -> str:
+            key_name = match.group(1)
+            sep = match.group(2)
+            val = match.group(3)
+            # Retain first 2 and last 2 characters if long enough
+            masked_val = f"{val[:2]}****{val[-2:]}" if len(val) >= 6 else "******"
+            return f"{key_name}{sep}{masked_val}"
+
+        return SECRET_REGEX.sub(repl_secret, cleaned)
 
 
 def get_logger(name: str, level: str = "INFO") -> logging.Logger:

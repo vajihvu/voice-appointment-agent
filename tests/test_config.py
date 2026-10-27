@@ -26,3 +26,27 @@ def test_pii_masking():
     assert mask_phone_number("9876543210") == "98*****210"
     assert mask_phone_number("") == ""
     assert mask_phone_number(None) == ""
+
+
+def test_logging_credential_scrubbing():
+    """Verify log formatter masks auth tokens, API keys, and bearer tokens."""
+    import logging
+
+    from app.core.logging import PIIMaskingFormatter
+
+    formatter = PIIMaskingFormatter(fmt="%(message)s")
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="Connecting with auth_token: secret_auth_token_value and Bearer eyJhbGciOiJIUzI1NiJ9",
+        args=(),
+        exc_info=None,
+    )
+    formatted = formatter.format(record)
+    assert "secret_auth_token_value" not in formatted
+    assert "eyJhbGciOiJIUzI1NiJ9" not in formatted
+    assert "auth_token: se****ue" in formatted or "auth_token: ******" in formatted
+    assert "Bearer ey****J9" in formatted or "Bearer ******" in formatted
+
