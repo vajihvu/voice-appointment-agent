@@ -85,6 +85,33 @@ def check_staged_content() -> bool:
     return has_violation
 
 
+def check_detect_secrets(staged_files: list[str]) -> bool:
+    """Runs detect-secrets-hook against staged files if detect-secrets is installed."""
+    import shutil
+    if not shutil.which("detect-secrets-hook"):
+        return False
+
+    baseline_arg = []
+    from pathlib import Path
+    if Path(".secrets.baseline").exists():
+        baseline_arg = ["--baseline", ".secrets.baseline"]
+
+    try:
+        # Run detect-secrets-hook on staged files
+        cmd = ["detect-secrets-hook"] + baseline_arg + staged_files
+        res = subprocess.run(cmd, text=True, capture_output=True)
+        if res.returncode != 0:
+            print("[BLOCKED] detect-secrets flagged potential secrets in staged files:")
+            if res.stdout:
+                print(res.stdout)
+            if res.stderr:
+                print(res.stderr)
+            return True
+    except Exception as e:
+        print(f"[WARNING] Could not execute detect-secrets-hook: {e}")
+    return False
+
+
 def main() -> int:
     staged = get_staged_files()
     if not staged:
@@ -92,8 +119,9 @@ def main() -> int:
 
     file_violation = check_staged_filenames(staged)
     content_violation = check_staged_content()
+    detect_secrets_violation = check_detect_secrets(staged)
 
-    if file_violation or content_violation:
+    if file_violation or content_violation or detect_secrets_violation:
         print("\n[REJECTED] Commit aborted: Security hygiene check failed.\n")
         return 1
 

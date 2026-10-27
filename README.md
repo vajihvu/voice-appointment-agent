@@ -16,17 +16,22 @@ To safeguard sensitive credentials (API tokens, private telephony auth IDs, and 
      - Ngrok configuration files
      - Hardcoded API keys (e.g. OpenAI `sk-...`, Deepgram `dg-...`, Plivo Auth Tokens, Bearer tokens).
 3. **Installing the Pre-Commit Hook**:
+   Run the installer script to register the pre-commit hook in `.git/hooks/pre-commit`:
    ```bash
    # On macOS/Linux:
-   cp scripts/check_secrets.sh .git/hooks/pre-commit
-   chmod +x .git/hooks/pre-commit
+   chmod +x scripts/install_hooks.sh
+   ./scripts/install_hooks.sh
 
-   # On Windows:
-   cp scripts/check_secrets.sh .git/hooks/pre-commit
-   # Or run check directly:
-   python scripts/check_secrets.py
+   # On Windows / Cross-platform:
+   python scripts/install_hooks.py
    ```
-4. **PII and Secret Masking in Logs**:
+4. **Multi-layer Secret Scanning (`detect-secrets`)**:
+   - In addition to custom regex audits, `scripts/check_secrets.py` hooks into Yelp's `detect-secrets` with `.secrets.baseline` to catch high-entropy strings and credential patterns without false positives.
+   - Run manually at any time:
+     ```bash
+     detect-secrets-hook --baseline .secrets.baseline <files>
+     ```
+5. **PII and Secret Masking in Logs**:
    - `app/core/logging.py` includes `PIIMaskingFormatter` which dynamically scrubs caller phone numbers (`+9198*****210`) as well as any authorization tokens, passwords, or API keys from terminal and application logs.
 
 ---
