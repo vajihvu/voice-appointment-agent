@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-voice-agent"
+version = "0.1.0"
+description = "Production-grade AI Voice Appointment Agent with Plivo, Deepgram, LLM Tool Calling, and SQLite"
+authors = [{ name = "AI Voice Agent Developer" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "websockets>=12.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.1",
+    "sqlalchemy>=2.0.28",
+    "aiosqlite>=0.20.0",
+    "plivo>=4.40.0",
+    "openai>=1.14.0",
+    "deepgram-sdk>=3.0.0",
+    "phonenumbers>=8.13.0",
+    "httpx>=0.27.0",
+    "python-multipart>=0.0.9",
+    "streamlit>=1.32.0",
+    "pandas>=2.2.0",
+
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.5",
+    "ruff>=0.3.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

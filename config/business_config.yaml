@@ -1,0 +1,55 @@
+business:
+  name: "BrightSmile Dental Clinic"
+  type: "dental_clinic" # Can be changed to "salon", "coaching_institute", etc.
+  phone: "+12025550143"
+  timezone: "Asia/Kolkata"
+  address: "104 Indiranagar 100ft Road, Bengaluru, Karnataka"
+  operating_hours:
+    start_time: "09:00"
+    end_time: "17:00"
+    slot_interval_minutes: 30
+    working_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+services:
+  - id: "cleaning"
+    name: "Routine Dental Cleaning & Scaling"
+    duration_minutes: 30
+    price: 1200
+  - id: "consultation"
+    name: "General Dental Checkup & Consultation"
+    duration_minutes: 30
+    price: 500
+  - id: "whitening"
+    name: "Teeth Whitening Session"
+    duration_minutes: 60
+    price: 3500
+  - id: "root_canal"
+    name: "Root Canal Specialist Assessment"
+    duration_minutes: 45
+    price: 2000
+
+human_handoff:
+  enabled: true
+  phone_number: "+919876543210"
+  triggers:
+    - "caller specifically asks for a human, receptionist, or doctor"
+    - "severe dental emergency, acute trauma, or uncontrolled bleeding"
+    - "complex billing, insurance dispute, or multiple failed clarifications"
+
+barge_in:
+  enabled: true
+  min_words: 2
+  min_confidence: 0.70
+  debounce_ms: 200
+
+sms:
+  enabled: true
+  sender_id: "BRTSML"
+  template: "Hi {name}, your appointment for {service} at {business_name} is confirmed for {date} at {time}. To reschedule, call us back anytime."
+  # For India (+91) DLT compliance if configured:
+  dlt_entity_id: "100123456789"
+  dlt_template_id: "12071618293040"
+
+privacy:
+  mask_phone_numbers: true
+  transcript_retention_days: 30
