@@ -281,6 +281,17 @@
       </div>
     </div>
 
+    <!-- Audio Context & Resampling Status Line -->
+    <div id="audio-rate-line" style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; padding: 0 4px;">
+      <span>Sample Rate: <strong id="audio-rate-display">--</strong></span>
+      <span>Resampling: <strong id="resampling-display">--</strong></span>
+    </div>
+
+    <!-- Echo Mode Notice -->
+    <div id="echo-mode-banner" style="display: none; font-size: 12px; color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 6px 12px; text-align: center;">
+      Echo test: audio is looped back, no transcription
+    </div>
+
     <!-- Live Audio Waveform -->
     <div class="visualizer-box">
       <canvas id="visualizer"></canvas>
@@ -422,16 +433,36 @@
       };
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const isEchoMode = (urlParams.get('mode') || 'echo') === 'echo';
+    if (isEchoMode) {
+      const banner = document.getElementById('echo-mode-banner');
+      if (banner) banner.style.display = 'block';
+    }
+
     async function initMicrophone() {
       try {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        try {
-          audioCtx = new AudioContextClass({ sampleRate: 16000 });
-        } catch (e) {
-          // Fallback for Safari / mobile drivers that reject non-hardware sample rates
+        const nativeRate = urlParams.get('nativerate') === '1';
+
+        if (nativeRate) {
+          // ?nativerate=1 skips 16000 request so worklet receives hardware rate (e.g. 48kHz, 44.1kHz)
           audioCtx = new AudioContextClass();
+        } else {
+          try {
+            audioCtx = new AudioContextClass({ sampleRate: 16000 });
+          } catch (e) {
+            // Fallback for Safari / mobile drivers that reject non-hardware sample rates
+            audioCtx = new AudioContextClass();
+          }
         }
         nextPlaybackTime = audioCtx.currentTime;
+
+        const isResampling = audioCtx.sampleRate !== 16000;
+        document.getElementById('audio-rate-display').innerText = audioCtx.sampleRate + ' Hz';
+        document.getElementById('resampling-display').innerText = isResampling
+          ? `Active (${audioCtx.sampleRate} Hz → 16 kHz)`
+          : 'Inactive (Direct 16 kHz)';
 
         // Microphone capture with hardware echo cancellation and noise suppression
         micStream = await navigator.mediaDevices.getUserMedia({
@@ -555,6 +586,8 @@
       document.getElementById('start-btn').disabled = false;
       document.getElementById('end-btn').disabled = true;
       document.getElementById('mic-status').innerText = 'Off';
+      document.getElementById('audio-rate-display').innerText = '--';
+      document.getElementById('resampling-display').innerText = '--';
       updateState('disconnected');
     }
   </script>
