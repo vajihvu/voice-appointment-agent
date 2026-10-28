@@ -105,8 +105,8 @@ for (const [caseName, data] of Object.entries(testCases)) {
     path.join(__dirname, '..', 'static', 'js', 'pcm_worklet.js'),
     'utf8'
   );
-  const hasImport = workletSource.includes("import { resampleFloat32ToPCM16 } from './resampler.js'")
-                 || workletSource.includes("import {resampleFloat32ToPCM16} from './resampler.js'");
+  const hasImport = (workletSource.includes("from './resampler.js'") || workletSource.includes('from "./resampler.js"'))
+                 && (workletSource.includes('StreamingResampler') || workletSource.includes('resampleFloat32ToPCM16'));
   const hasNoInlineAlgorithm = !workletSource.includes('while (this.pos');
 
   if (hasImport && hasNoInlineAlgorithm) {
