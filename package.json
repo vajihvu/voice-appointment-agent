@@ -1,0 +1,9 @@
+{
+  "name": "ai-voice-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser transport audio resampling tests for AI Voice Appointment Agent",
+  "scripts": {
+    "test": "node tests/test_resampler.js && node tests/test_worklet_single_source.js && node tests/test_worklet_streaming.js && node tests/test_module_loading.js"
+  }
+}

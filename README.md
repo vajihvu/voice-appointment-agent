@@ -81,8 +81,11 @@ python simulator/call_simulator.py --interactive
 
 ### 6. Running Tests & Linters
 ```bash
-# Run unit & integration tests
+# Run unit & integration tests (Python)
 pytest -v
+
+# Run browser audio resampler parity & streaming tests (Node.js)
+npm test
 
 # Run code linter
 ruff check .
