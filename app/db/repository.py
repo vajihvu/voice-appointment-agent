@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger, mask_phone_number
-from app.db.models import Appointment, Call, ScheduleSlot, TurnLatency
+from app.db.models import Appointment, Call, Notification, ScheduleSlot, TurnLatency
 
 
 class SlotAlreadyBookedException(Exception):
@@ -220,12 +220,12 @@ def utc_now() -> datetime:
 async def create_or_get_call(
     session: AsyncSession,
     caller_phone: str,
-    plivo_call_uuid: Optional[str] = None,
+    external_call_id: Optional[str] = None,
 ) -> Call:
     """Creates a new Call session record."""
     call = Call(
         caller_phone=caller_phone,
-        plivo_call_uuid=plivo_call_uuid,
+        external_call_id=external_call_id,
         start_time=utc_now(),
         status="in_progress",
     )
@@ -233,6 +233,40 @@ async def create_or_get_call(
     await session.commit()
     await session.refresh(call)
     return call
+
+
+async def create_notification(
+    session: AsyncSession,
+    recipient: str,
+    message: str,
+    appointment_id: Optional[str] = None,
+    call_id: Optional[str] = None,
+    status: str = "recorded",
+) -> Notification:
+    """Stores an appointment confirmation notification record in the database."""
+    notification = Notification(
+        recipient=recipient,
+        message=message,
+        appointment_id=appointment_id,
+        call_id=call_id,
+        status=status,
+        created_at=utc_now(),
+    )
+    session.add(notification)
+    await session.commit()
+    await session.refresh(notification)
+    logger.info(f"Notification recorded in DB for {mask_phone_number(recipient)}: {message[:60]}...")
+    return notification
+
+
+async def get_notifications(
+    session: AsyncSession,
+    limit: int = 50,
+) -> List[Notification]:
+    """Retrieves recent confirmation notifications for dashboard display."""
+    stmt = select(Notification).order_by(Notification.created_at.desc()).limit(limit)
+    res = await session.execute(stmt)
+    return list(res.scalars().all())
 
 
 async def log_turn_latency(

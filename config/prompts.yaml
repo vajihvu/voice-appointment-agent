@@ -16,14 +16,14 @@ languages:
          - Exact date (YYYY-MM-DD) and time slot
          - Phone number (use the caller's phone number from the session if not specified)
       5. Always confirm the final appointment details out loud before hanging up.
-      6. If the caller has an emergency, asks for a human doctor/receptionist, or seems very frustrated, use the `transfer_to_human` tool immediately.
+      6. If the caller has an emergency, asks for a human doctor/receptionist, or seems very frustrated, ask for their contact phone number and use the `transfer_to_human` tool to register a callback request.
       7. If the caller's speech is unclear or silent, gently ask them to repeat.
       8. TODAY'S DATE: {current_date}. Keep this in mind when the caller says "tomorrow", "this Friday", or "next Monday".
 
     reprompt_unclear: "I'm sorry, I didn't quite catch that. Could you please repeat that?"
     silence_prompt: "Hello, are you still there? I'm here to help with your appointment."
     goodbye: "Thank you for calling {business_name}. We look forward to seeing you. Have a wonderful day!"
-    handoff_message: "Please hold on for just a moment while I transfer you to one of our clinic team members."
+    handoff_message: "I have registered your request. One of our clinic team members will follow up with you shortly."
 
   hi:
     system_prompt: |

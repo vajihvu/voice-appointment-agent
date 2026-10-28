@@ -47,11 +47,11 @@ class LocalCallSimulator:
         self.received_audio_bytes = 0
 
     async def _send_audio_callback(self, audio_chunk: bytes) -> None:
-        """Simulates sending audio back to Plivo."""
+        """Simulates sending audio back to the client transport."""
         self.received_audio_bytes += len(audio_chunk)
 
     async def _clear_audio_callback(self) -> None:
-        """Simulates sending clearAudio to Plivo."""
+        """Simulates sending clearAudio to the client transport (barge-in interruption)."""
         logger.info("[Simulator] Received clearAudio signal (barge-in interruption).")
 
     async def run_dialogue(self, turns: List[str]) -> CallSession:
@@ -63,7 +63,7 @@ class LocalCallSimulator:
             call_record = await create_or_get_call(
                 session=db,
                 caller_phone=self.caller_phone,
-                plivo_call_uuid=call_uuid,
+                external_call_id=call_uuid,
             )
             call_id = call_record.id
 
@@ -124,7 +124,7 @@ async def interactive_shell():
         call = await create_or_get_call(
             session=db,
             caller_phone="+919876543210",
-            plivo_call_uuid=call_uuid,
+            external_call_id=call_uuid,
         )
         call_id = call.id
 

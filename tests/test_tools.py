@@ -72,10 +72,32 @@ async def test_cancel_appointment_execution(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_transfer_to_human_execution(db_session: AsyncSession):
-    res = await execute_tool(
+    # Case 1: In a browser call without known phone, tool requests contact number
+    res_no_phone = await execute_tool(
         db_session=db_session,
         tool_name="transfer_to_human",
         arguments_json='{"reason": "Severe toothache and swelling"}',
     )
-    assert res.get("status") == "transfer_initiated"
-    assert "destination_number" in res
+    assert res_no_phone.get("status") == "needs_phone"
+    assert "valid" in res_no_phone.get("message", "").lower()
+
+    # Case 2: With valid contact number provided
+    res_with_phone = await execute_tool(
+        db_session=db_session,
+        tool_name="transfer_to_human",
+        arguments_json='{"reason": "Severe toothache and swelling", "phone": "+919876543210"}',
+    )
+    assert res_with_phone.get("status") == "callback_requested"
+    assert res_with_phone.get("phone") == "+919876543210"
+    assert "notified" in res_with_phone.get("message", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_send_confirmation_notification(db_session: AsyncSession):
+    res = await execute_tool(
+        db_session=db_session,
+        tool_name="send_confirmation_sms",
+        arguments_json='{"phone": "+919876543210", "appointment_id": "APT-TEST-001"}',
+    )
+    assert res.get("status") == "recorded"
+    assert "database" in res.get("message", "").lower()

@@ -1,72 +1,101 @@
 # Integration & Deployment Guide
 
-This guide explains how to set up, expose, and integrate the AI Voice Appointment Agent with Plivo, including local tunneling, regulatory constraints, and data privacy policies.
+This guide explains how to run the AI Voice Appointment Agent locally using the browser audio studio, and details how a commercial telephony or SIP provider adapter can be plugged into the `VoiceTransport` interface.
 
 ---
 
-## 1. Local Telephony Ingress (Tunneling)
+## 1. Browser Voice Studio (Local Ingress)
 
-Because Plivo needs to reach your server via public HTTPS webhooks and WebSockets (`wss://`), you must expose your local development server to the internet using **ngrok** or **Cloudflare Tunnel**.
+The primary transport for development, testing, and portfolio demonstrations is the built-in Browser Web Audio transport:
+- **Server Address**: `http://127.0.0.1:8000`
+- **Voice Studio URL**: `http://127.0.0.1:8000/call` (or `/`)
+- **WebSocket Endpoint**: `ws://127.0.0.1:8000/ws/call`
 
-### Option A: Using ngrok
-```bash
-# Expose local port 8000
-ngrok http 8000
+### Running the Voice Studio
+1. Start the FastAPI server:
+   ```bash
+   python run.py
+   ```
+2. Open `http://127.0.0.1:8000` in Google Chrome, Microsoft Edge, or Mozilla Firefox.
+3. Click **Start Call** and grant microphone permissions.
+4. Speak into your microphone. The client captures 16 kHz mono audio via an `AudioWorklet`, streams it to the server, and plays back agent responses with instant barge-in support.
+
+---
+
+## 2. Telephony & SIP Adapter Architecture
+
+> [!IMPORTANT]
+> ### ⚠️ DESIGN ONLY / UNTESTED ARCHITECTURE
+> The telephony adapter blueprint documented in this section illustrates the architectural design for plugging an external PSTN/SIP gateway or cloud telephony provider (such as Twilio, Telnyx, or a FreeSWITCH/Asterisk SIP trunk) into the `VoiceTransport` interface.
+> **This adapter is an untested architectural design and is not active in the default test suite.**
+
+### The `VoiceTransport` Contract
+The core conversation engine (`CallSession`) interacts exclusively with `app.transport.base.VoiceTransport`:
+```python
+class VoiceTransport(ABC):
+    async def start(self) -> None: ...
+    async def receive_audio(self) -> AsyncGenerator[bytes, None]: ...
+    async def send_audio(self, pcm_bytes: bytes) -> None: ...
+    async def clear_audio(self) -> None: ...
+    async def send_event(self, event_type: str, data: dict) -> None: ...
+    async def close(self) -> None: ...
 ```
-- Copy the Forwarding URL (e.g. `https://abc1234.ngrok-free.app`).
-- Set `BASE_URL=https://abc1234.ngrok-free.app` in your `.env`.
 
-### Option B: Using Cloudflare Tunnel (Free & No session timeout)
-```bash
-# Install cloudflared (via brew, scoop, or direct download)
-cloudflared tunnel --url http://localhost:8000
+### Telephony Adapter Blueprint (Conceptual Design)
+To connect a cloud telephony provider or SIP gateway, an adapter subclasses `VoiceTransport` and implements three tasks:
+
+1. **Protocol Ingress & Signaling**:
+   - Accepts the provider's inbound audio stream (e.g., Twilio Media Streams, Telnyx TeXML Streams, or SIP RTP over UDP/WebSocket).
+2. **Audio Resampling & Transcoding**:
+   - Standard PSTN telephony typically operates at 8,000 Hz mono G.711 $\mu$-law or A-law.
+   - The adapter must decode incoming 8kHz $\mu$-law frames to 16-bit linear PCM and resample from 8,000 Hz to 16,000 Hz before yielding to `receive_audio()`.
+   - Conversely, outbound 16 kHz PCM from `send_audio()` must be downsampled to 8,000 Hz and encoded to $\mu$-law before transmission over the carrier socket.
+3. **Barge-in Mapping**:
+   - When the agent triggers `clear_audio()`, the adapter maps this to the provider-specific clear packet (e.g., Twilio `{"event": "clear", "streamSid": "..."}`).
+
+#### Reference Skeleton Code:
+```python
+# DESIGN ONLY - ARCHITECTURAL BLUEPRINT (UNTESTED)
+from app.transport.base import VoiceTransport
+
+class TelephonyProviderAdapter(VoiceTransport):
+    """Untested conceptual adapter bridging a telephony WebSocket to VoiceTransport."""
+
+    def __init__(self, carrier_ws, stream_id: str):
+        self.carrier_ws = carrier_ws
+        self.stream_id = stream_id
+
+    async def start(self) -> None:
+        pass
+
+    async def receive_audio(self):
+        # 1. Read carrier frames
+        # 2. Base64 decode payload
+        # 3. Transcode 8kHz mu-law -> 16kHz PCM16
+        # 4. yield 16kHz PCM16 bytes
+        pass
+
+    async def send_audio(self, pcm_bytes: bytes) -> None:
+        # 1. Downsample 16kHz PCM16 -> 8kHz
+        # 2. Encode to mu-law and base64
+        # 3. Send carrier media packet (e.g. playAudio / media)
+        pass
+
+    async def clear_audio(self) -> None:
+        # Send carrier-specific buffer flush packet
+        pass
+
+    async def send_event(self, event_type: str, data: dict) -> None:
+        pass
+
+    async def close(self) -> None:
+        await self.carrier_ws.close()
 ```
-- Copy the generated `https://*.trycloudflare.com` URL to `BASE_URL` in `.env`.
 
 ---
 
-## 2. Plivo Console Configuration
+## 3. Data Privacy & Retention Policy
 
-1. Log into your [Plivo Console](https://console.plivo.com/).
-2. Navigate to **Voice > Applications** and click **Add New Application**:
-   - **Application Name**: `Dental-AI-Voice-Agent`
-   - **Answer URL**: `https://<YOUR_TUNNEL_URL>/webhook/plivo/answer` (Method: `POST`)
-   - **Fallback URL**: `https://<YOUR_TUNNEL_URL>/webhook/plivo/fallback` (Method: `POST`)
-   - **Hangup URL**: `https://<YOUR_TUNNEL_URL>/webhook/plivo/hangup` (Method: `POST`)
-3. Navigate to **Phone Numbers**, select your active Plivo number, and attach the application you just created.
-
-### ⚠️ Critical Note: Plivo Trial Account Limits
-- On a Plivo Trial Account, **outbound calls, SMS, and human-handoff forwarding can ONLY connect to verified sandbox numbers**.
-- **Action Required**:
-  1. Go to **Phone Numbers > Sandbox Numbers** in Plivo Console.
-  2. Add and verify your personal phone number and the clinic receptionist's number (`HUMAN_HANDOFF_NUMBER`).
-  3. Attempting to transfer calls or send SMS to unverified numbers on trial accounts will return an HTTP 400 error.
-
----
-
-## 3. Telephony Regulatory Compliance (India +91 / TRAI)
-
-If deploying for clinics in India using Indian phone numbers (+91):
-- **DLT (Distributed Ledger Technology)**: TRAI mandates registration of Entity ID, Sender Header (e.g., `BRTSML`), and SMS Content Templates.
-- Our system supports configurable DLT headers in `config/business_config.yaml`:
-  ```yaml
-  sms:
-    enabled: true
-    sender_id: "BRTSML"
-    dlt_entity_id: "100123456789"
-    dlt_template_id: "12071618293040"
-  ```
-- If testing in sandbox mode without DLT, SMS can be toggled off (`ENABLE_SMS_CONFIRMATION=false`), or simulated using the local test harness.
-
----
-
-## 4. Privacy & Data Protection Policy
-
-1. **PII Masking**:
-   - Caller phone numbers are masked in all standard application logs and dashboard reports (e.g., `+91 98*** **210`).
-   - Plaintext phone numbers are stored strictly within the ACID database for legitimate appointment reminder operations.
-2. **Transcript Retention Policy**:
-   - Transcripts are retained for a configurable retention window (default: `TRANSCRIPT_RETENTION_DAYS=30`).
-   - The automated cleanup task `purge_old_transcripts(retention_days)` scrubs dialogue transcripts older than the window, replacing them with `[PURGED_BY_RETENTION_POLICY]`.
-3. **Secret Storage**:
-   - API keys and telephony auth tokens must never be committed to Git. All secrets are read from the `.env` file using Pydantic Settings.
+1. **Local SQLite Persistence**: All appointment bookings, turn latencies, and confirmation notifications are persisted locally in `voice_agent.db`.
+2. **PII Masking**: Caller phone numbers and sensitive credentials are automatically masked in standard application logs (`+9198*****210`).
+3. **Automated Transcript Purging**: Call records older than `TRANSCRIPT_RETENTION_DAYS` (default 30 days) have their full transcript text sanitized to `[PURGED_BY_RETENTION_POLICY]` via `app.db.repository.purge_old_transcripts`.

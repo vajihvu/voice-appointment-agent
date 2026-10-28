@@ -14,6 +14,7 @@ from app.db.repository import finalize_call, log_turn_latency
 from app.llm.base import LLMMessage, LLMProvider
 from app.llm.tools import execute_tool, get_tool_definitions
 from app.stt.base import STTEvent
+from app.transport.base import VoiceTransport
 from app.tts.base import TTSProvider
 
 settings = get_settings()
@@ -29,6 +30,7 @@ class CallSession:
         llm_provider: LLMProvider,
         tts_provider: TTSProvider,
         db_session_factory: Callable[[], AsyncSession],
+        transport: Optional[VoiceTransport] = None,
         send_audio_callback: Optional[Callable[[bytes], Coroutine[Any, Any, None]]] = None,
         clear_audio_callback: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
         language: str = "en",
@@ -38,8 +40,9 @@ class CallSession:
         self.llm = llm_provider
         self.tts = tts_provider
         self.db_session_factory = db_session_factory
-        self.send_audio_callback = send_audio_callback
-        self.clear_audio_callback = clear_audio_callback
+        self.transport = transport
+        self.send_audio_callback = (transport.send_audio if transport else None) or send_audio_callback
+        self.clear_audio_callback = (transport.clear_audio if transport else None) or clear_audio_callback
         self.language = language
 
         # Session State
@@ -127,13 +130,21 @@ class CallSession:
         """Executes a complete conversational turn upon caller utterance completion.
 
         Latency Definition:
-        `End of caller speech -> First audio byte sent to Plivo`
+        `End of caller speech -> First agent audio byte sent over the WebSocket`
+        (Server turn processing latency; excludes browser audio scheduling and network delay).
         """
         t_speech_end = speech_end_timestamp or time.time()
         self.turn_index += 1
         logger.info(f"Turn {self.turn_index} | Caller: '{transcript}'")
         self.full_transcript.append({"role": "caller", "content": transcript})
         self.messages.append(LLMMessage(role="user", content=transcript))
+
+        if self.transport:
+            try:
+                await self.transport.send_event("transcript", {"role": "caller", "text": transcript})
+                await self.transport.send_event("state", {"state": "thinking"})
+            except Exception:
+                pass
 
         t_llm_start = time.time()
         tool_called_name: Optional[str] = None
@@ -216,6 +227,13 @@ class CallSession:
             self.full_transcript.append({"role": "agent", "content": assistant_reply})
             logger.info(f"Turn {self.turn_index} | Agent: '{assistant_reply}'")
 
+            if self.transport:
+                try:
+                    await self.transport.send_event("transcript", {"role": "agent", "text": assistant_reply})
+                    await self.transport.send_event("state", {"state": "speaking"})
+                except Exception:
+                    pass
+
             # 3. Stream TTS synthesis & measure mouth-to-ear latency
             t_tts_start = time.time()
             self.is_agent_speaking = True
@@ -232,6 +250,11 @@ class CallSession:
                     if self.send_audio_callback:
                         await self.send_audio_callback(chunk.audio_bytes)
                 self.is_agent_speaking = False
+                if self.transport:
+                    try:
+                        await self.transport.send_event("state", {"state": "listening"})
+                    except Exception:
+                        pass
 
             self._current_playback_task = asyncio.create_task(stream_audio_out())
             try:

@@ -24,18 +24,24 @@ def load_yaml(file_path: Path) -> Dict[str, Any]:
 class Settings(BaseSettings):
     """Central configuration class loading environment variables and YAML settings."""
 
-    # Server configuration
+    # Server configuration (localhost binding by default)
     PORT: int = 8000
-    HOST: str = "0.0.0.0"
+    HOST: str = "127.0.0.1"
     BASE_URL: str = "http://localhost:8000"
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 
-    # Plivo Telephony & SMS
-    PLIVO_AUTH_ID: str = ""
-    PLIVO_AUTH_TOKEN: str = ""
-    PLIVO_PHONE_NUMBER: str = ""
-    HUMAN_HANDOFF_NUMBER: str = "+919876543210"
+    # Browser Voice Transport Security
+    CALL_TOKEN: str = ""  # Optional shared token for /ws/call
+    ALLOWED_ORIGINS: List[str] = [
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
+    # Human Handoff / Callback destination
+    HUMAN_HANDOFF_CONTACT: str = "+919876543210"
 
     # STT (Deepgram)
     DEEPGRAM_API_KEY: str = ""
@@ -53,8 +59,7 @@ class Settings(BaseSettings):
     TRANSCRIPT_RETENTION_DAYS: int = 30
 
     # Feature Toggles
-    ENABLE_SMS_CONFIRMATION: bool = True
-    ENABLE_WEBHOOK_SIGNATURE_VERIFICATION: bool = True
+    ENABLE_NOTIFICATIONS: bool = True
 
 
     # Loaded from YAML

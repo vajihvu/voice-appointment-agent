@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Cross-platform installer for git pre-commit hook."""
 
-import os
 from pathlib import Path
+
 
 def main():
     repo_root = Path(__file__).resolve().parent.parent

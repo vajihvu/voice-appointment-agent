@@ -20,7 +20,7 @@ ALLOWED_FILES = {
 
 # Regex to detect high-entropy keys, private tokens, and API credentials
 SECRET_PATTERNS = [
-    re.compile(r"(?i)(plivo[_-]auth[_-]token|auth[_-]token|api[_-]key|secret[_-]key|bearer)\s*[:=]\s*['\"][a-zA-Z0-9_\-\.]{16,}['\"]"),
+    re.compile(r"(?i)(auth[_-]token|api[_-]key|secret[_-]key|access[_-]token|bearer)\s*[:=]\s*['\"][a-zA-Z0-9_\-\.]{16,}['\"]"),
     re.compile(r"sk-[a-zA-Z0-9]{20,}"),  # OpenAI secret key format
     re.compile(r"dg-[a-zA-Z0-9]{20,}"),  # Deepgram key format
     re.compile(r"-----BEGIN\s+(RSA|EC|DSA|OPENSSH|PRIVATE)\s+KEY-----"),
@@ -33,7 +33,11 @@ SAFE_EXCLUSIONS = re.compile(r"(?i)(example|placeholder|dummy|mock|fake|your_|te
 def get_staged_files() -> list[str]:
     """Retrieves list of files staged for commit."""
     try:
-        res = subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True)
+        res = subprocess.check_output(
+            ["git", "diff", "--cached", "--name-only"],
+            encoding="utf-8",
+            errors="replace",
+        )
         return [f.strip() for f in res.splitlines() if f.strip()]
     except Exception as e:
         print(f"[SECURITY CHECK ERROR] Could not get staged files: {e}")
@@ -57,7 +61,11 @@ def check_staged_filenames(staged_files: list[str]) -> bool:
 def check_staged_content() -> bool:
     """Inspects staged diff additions for hardcoded credentials."""
     try:
-        diff_output = subprocess.check_output(["git", "diff", "--cached", "-U0"], text=True)
+        diff_output = subprocess.check_output(
+            ["git", "diff", "--cached", "-U0"],
+            encoding="utf-8",
+            errors="replace",
+        )
     except Exception as e:
         print(f"[SECURITY CHECK ERROR] Could not read staged diff: {e}")
         return False

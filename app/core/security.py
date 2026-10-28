@@ -1,9 +1,8 @@
-"""Security module integrating Plivo's official SDK cryptographic HMAC-SHA256 signature validator."""
+"""Security and authentication module for browser WebSocket connections."""
 
-from typing import Any, Dict, Optional
+from typing import List, Optional
 
-from fastapi import Header, HTTPException, Request, status
-from plivo.utils import validate_v3_signature
+from fastapi import WebSocket, status
 
 from app.core.config import get_settings
 from app.core.logging import logger
@@ -11,94 +10,44 @@ from app.core.logging import logger
 settings = get_settings()
 
 
-def reconstruct_public_url(request: Request, base_url: str) -> str:
-    """Reconstructs the full public URL as called by Plivo behind a reverse proxy/ngrok.
+def is_origin_allowed(origin: Optional[str], allowed_origins: List[str]) -> bool:
+    """Checks whether the client Origin header is in the allowlist.
 
-    Includes the exact scheme, host, path, and query string (e.g. '?mode=echo')
-    to ensure the signature verification input precisely matches what Plivo signed.
+    If origin is None or empty (e.g. native client, file://, or non-browser),
+    it is allowed on localhost development.
     """
-    base = base_url.rstrip("/")
-    path = request.url.path
-    query = request.url.query
-    if query:
-        return f"{base}{path}?{query}"
-    return f"{base}{path}"
-
-
-def verify_signature_v3(
-    method: str,
-    uri: str,
-    nonce: str,
-    auth_token: str,
-    signature: str,
-    params: Optional[Dict[str, Any]] = None,
-) -> bool:
-    """Invokes Plivo's official SDK helper to validate the request signature."""
-    try:
-        return validate_v3_signature(
-            method=method,
-            uri=uri,
-            nonce=nonce,
-            auth_token=auth_token,
-            v3_signature=signature,
-            params=params or {},
-        )
-    except Exception as e:
-        logger.error(f"Error during Plivo official signature validation: {e}")
-        return False
-
-
-async def verify_plivo_webhook_request(
-    request: Request,
-    x_plivo_signature_v3: Optional[str] = Header(None, alias="X-Plivo-Signature-V3"),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None, alias="X-Plivo-Signature-V3-Nonce"),
-) -> bool:
-    """FastAPI dependency for verifying that an inbound webhook originated from Plivo.
-
-    Fails closed: if verification is enabled, missing or invalid signatures return HTTP 401.
-    """
-    if not settings.ENABLE_WEBHOOK_SIGNATURE_VERIFICATION:
-        logger.warning(
-            "⚠️  SECURITY WARNING: PLIVO WEBHOOK SIGNATURE VERIFICATION IS DISABLED! "
-            "ANY CALLER CAN TRIGGER WEBHOOKS. SET ENABLE_WEBHOOK_SIGNATURE_VERIFICATION=true IN PRODUCTION."
-        )
+    if not origin:
         return True
 
-    if not x_plivo_signature_v3 or not x_plivo_signature_v3_nonce:
-        logger.warning("Rejected webhook request: Missing X-Plivo-Signature-V3 or Nonce header.")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Plivo V3 signature headers",
-        )
+    # Normalize origin
+    origin_clean = origin.rstrip("/")
+    for allowed in allowed_origins:
+        if allowed.rstrip("/") == origin_clean:
+            return True
+    return False
 
-    # Reconstruct the exact public URL signed by Plivo behind ngrok
-    public_url = reconstruct_public_url(request, settings.BASE_URL)
 
-    # Extract form parameters for POST requests
-    params = {}
-    if request.method.upper() == "POST":
-        try:
-            form = await request.form()
-            params = dict(form)
-        except Exception as e:
-            logger.warning(f"Could not parse form body for signature validation: {e}")
+async def verify_ws_connection(
+    websocket: WebSocket,
+    token: Optional[str] = None,
+) -> bool:
+    """Verifies that an incoming WebSocket connection complies with origin and shared token policies.
 
-    is_valid = verify_signature_v3(
-        method=request.method,
-        uri=public_url,
-        nonce=x_plivo_signature_v3_nonce,
-        auth_token=settings.PLIVO_AUTH_TOKEN,
-        signature=x_plivo_signature_v3,
-        params=params,
-    )
+    Closes the connection immediately if verification fails.
+    """
+    origin = websocket.headers.get("origin")
+    if not is_origin_allowed(origin, settings.ALLOWED_ORIGINS):
+        logger.warning(f"Rejected WebSocket connection: Forbidden Origin '{origin}'")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Forbidden Origin")
+        return False
 
-    if not is_valid:
-        logger.warning(
-            f"Rejected webhook request: Invalid Plivo V3 signature for {request.method} {public_url}"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Plivo webhook signature",
-        )
+    # Check shared token if configured
+    expected_token = settings.CALL_TOKEN.strip()
+    if expected_token:
+        provided_token = token or websocket.query_params.get("token") or websocket.headers.get("x-call-token")
+        if not provided_token or provided_token != expected_token:
+            logger.warning("Rejected WebSocket connection: Invalid or missing authentication token")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized")
+            return False
 
     return True

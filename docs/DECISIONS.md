@@ -1,72 +1,105 @@
 # Architectural & Engineering Decisions (ADR)
 
-## Decision 1: Telephony Provider - Plivo Voice API & Audio Streaming
+## Decision 1: Architectural Pivot - Replacing Plivo with Browser Web Audio Transport
 
-- **Context**: Inbound phone calls require bidirectional real-time audio streaming and webhook handling to integrate with conversational AI pipelines.
-- **Documentation Verification & Claim Citations**:
-  Every URL below supports a specific verified protocol specification:
+### Context & Problem
+In the initial project architecture (preserved in git history under git tag `phase-2`), inbound telephony was built on Plivo's Voice API, XML Stream webhooks, and G.711 $\mu$-law WebSockets. However, Plivo updated its onboarding policies to gate number acquisition and trial voice features behind corporate business registration, blocking individual student and independent developers.
 
-  | Specific Claim / Feature | Verified Plivo Documentation URL | Verification Status |
-  | :--- | :--- | :--- |
-  | **`<Stream>` XML element & child text**: Encloses the public WebSocket URL (`wss://...`) to stream live call audio. | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **`<Stream>` attribute `bidirectional`**: Set to `"true"` to enable full-duplex communication (receiving caller audio and transmitting synthesized audio back). | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **`<Stream>` attribute `keepCallAlive`**: Set to `"true"` to keep the telephony session active while streaming rather than disconnecting when XML commands complete. | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **`<Stream>` attribute `contentType`**: Specifies audio encoding format `audio/x-mulaw;rate=8000` (8000Hz mono G.711 $\mu$-law). | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **`<Stream>` attributes `streamTimeout`, `statusCallbackUrl`, `statusCallbackMethod`**: Stream lifecycle timeout and webhook callback endpoints for connection state change notifications. | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **WebSocket Inbound `event: "start"`**: Carries initial session metadata including `streamId`, `callId`, and `mediaFormat` (`encoding: "audio/x-mulaw"`, `sampleRate: 8000`). | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **WebSocket Inbound `event: "media"`**: Caller audio delivered in continuous 20ms chunks (160 bytes) base64-encoded in `media.payload` with sequence `chunk` and `timestamp`. | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **WebSocket Inbound `event: "stop"`**: Dispatched by Plivo when the call or stream session terminates, carrying `streamId`. | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **WebSocket Outbound `event: "playAudio"`**: Packet containing synthesized audio: `{"event": "playAudio", "media": {"contentType": "audio/x-mulaw", "sampleRate": 8000, "payload": "<base64>"}}`. | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **WebSocket Outbound `event: "clearAudio"`**: Instant barge-in audio clearing: `{"event": "clearAudio", "streamId": "<streamId>"}` to flush Plivo's edge playback buffer. | [https://www.plivo.com/docs/voice/api/stream/](https://www.plivo.com/docs/voice/api/stream/) | **VERIFIED** |
-  | **WebSocket Outbound `mark` / `checkpoint` events**: Outbound marker packets for client-side playback tracking (like Twilio `mark`). Not documented in official Plivo audio streaming documentation. | N/A | **UNVERIFIED** (We do not rely on marker events; audio duration tracking is handled server-side). |
-  | **WebSocket Inbound `event: "dtmf"`**: Touch-tone keypad events during active streaming. Omitted from official stream documentation reference tables. | N/A | **UNVERIFIED** (We do not rely on DTMF events; interaction is voice-driven via STT). |
-  | **Webhook Signature Validation (V3)**: Voice webhooks include headers `X-Plivo-Signature-V3`, `X-Plivo-Signature-Ma-V3`, and `X-Plivo-Signature-V3-Nonce`. Validation uses HMAC-SHA256 with key = `PLIVO_AUTH_TOKEN`. For GET requests, the signed string is `URL + "." + nonce`. For POST requests, the form parameters are sorted alphabetically by key, concatenated, appended to the URL, and joined with `"." + nonce`. Implemented via official `plivo.utils.validate_v3_signature`. | [https://www.plivo.com/docs/voice/concepts/signature-validation](https://www.plivo.com/docs/voice/concepts/signature-validation) | **VERIFIED** |
-  | **Plivo Trial Destination Limitations**: Outbound SMS, call forwarding, and human-handoff targets fail with HTTP 400 unless pre-verified as Sandbox Numbers in the Plivo Console. | [https://console.plivo.com](https://console.plivo.com) (Phone Numbers > Sandbox Numbers) | **VERIFIED** |
+### Decision
+1. **Remove Plivo from active code**: Drop Plivo SDK dependency, signature validators, XML endpoints, and 8kHz $\mu$-law transcoding.
+2. **Preserve Legacy Implementation in Git**: Git tag `phase-2` permanently preserves the complete working Plivo implementation in version control history.
+3. **Introduce `VoiceTransport` Interface**: Abstract audio I/O, barge-in signals, and connection lifecycles behind `VoiceTransport`.
+4. **Implement Browser Web Audio Transport (`BrowserVoiceTransport`)**:
+   - Zero financial barrier and zero carrier account gating.
+   - Runs locally on `http://127.0.0.1:8000`.
+   - Captures microphone audio using browser `navigator.mediaDevices.getUserMedia` with echo cancellation and noise suppression.
+   - Encodes and buffers audio via `AudioWorklet` as raw 16 kHz PCM16 frames over WebSocket `/ws/call`.
+   - Plays agent audio smoothly with the Web Audio API and provides instant barge-in clearing.
 
-## Decision 2: Provider Abstraction & Swappable Interfaces
-- **STT**: `STTProvider` Abstract Base Class (`start()`, `send_audio()`, `receive_events()`, `close()`).
-  - Production concrete: Deepgram Live WebSocket (`nova-2`, 8000Hz).
-  - Test/Simulator concrete: `MockSTTProvider`.
-- **LLM**: `LLMProvider` Abstract Base Class (`chat_stream()`).
-  - Production concrete: OpenAI-compatible API (Groq / OpenAI) with tool/function calling schemas.
-  - Test/Simulator concrete: `MockLLMProvider`.
-- **TTS**: `TTSProvider` Abstract Base Class (`synthesize_text()`, `synthesize_stream()`).
-  - Production concrete: Deepgram Aura streaming TTS (emitting 8000Hz $\mu$-law).
-  - Test/Simulator concrete: `MockTTSProvider`.
+---
 
-## Decision 3: Audio Codec & Turn Latency Definition
-- **Telephony Format**: G.711 $\mu$-law (`audio/x-mulaw`) at 8000Hz mono.
-- **Strict Turn Latency Definition**:
-  $$\text{Turn Latency} = T_{\text{first audio byte sent to Plivo}} - T_{\text{end of caller speech}}$$
-  - Measured deterministically and broken down into $T_{\text{STT}}, T_{\text{LLM}}, T_{\text{TTS}}, T_{\text{total}}$ in `TurnLatency` records.
-  - Target: <1000ms. No claims on performance thresholds are made until measured by the automated evaluation benchmark script in Phase 6.
+## Decision 2: Transport Abstraction (`VoiceTransport`)
 
-## Decision 4: Barge-In Filtering & Debounce
-- Prevents backchannel sounds ("hmm", coughs) and acoustic echo from prematurely interrupting the agent.
-- **Trigger Conditions**:
-  1. `is_agent_speaking == True` (only active while agent is talking).
-  2. Word count $\ge 2$ words.
-  3. STT confidence $\ge 0.70$.
-  4. Debounce duration: Speech must persist longer than $200\text{ms}$ after initial detection before issuing `clearAudio` to Plivo and cancelling the playback task.
-- **Playback Completion Estimation (Phase 4 Implementation Note)**:
-  - Plivo does not send a "playback finished" marker event over the WebSocket.
-  - Therefore, playback completion is estimated from audio duration ($8000\text{ bytes/second}$ for 8kHz $\mu$-law mono: $\text{Duration (s)} = \frac{\text{Audio Bytes}}{8000}$).
-  - Plivo buffers audio on the telephony edge, so this duration is an approximation that will be tuned and measured empirically rather than treated as an exact value.
+The conversational session state machine (`CallSession`) is decoupled from underlying network protocols:
 
-## Decision 5: Slot Reservation Concurrency & Transactional Safety
-- **SQLite Concurrency & Row Locking Reality**:
-  - In PostgreSQL or MySQL, `SELECT ... FOR UPDATE` acquires an explicit row-level lock.
-  - **In SQLite, `SELECT ... FOR UPDATE` is a syntactic NO-OP**. SQLite uses database/file-level locking, not fine-grained row-level locking.
-  - Therefore, the true, fail-safe guarantee against double-booking is the database-level **`UniqueConstraint("appointment_date", "start_time")`** on `appointments` and `schedule_slots`.
-  - When concurrent transactions race, the second transaction is immediately blocked and rolls back with an `IntegrityError`, returning a graceful alternative slot recommendation to the caller.
-  - Verified in `tests/test_concurrency.py` using an independent file-backed SQLite database with 5 simultaneous connections executing concurrently via `asyncio.gather()`.
+```
+[Browser Client / Mic]  <--- WebSocket ---> [BrowserVoiceTransport]
+                                                      |
+                                                      v
+                                              [VoiceTransport ABC]
+                                                      |
+                                                      v
+                                                [CallSession]
+                                          (STT -> LLM -> Tools -> TTS)
+```
 
-## Decision 6: Privacy, Data Protection, and PII Masking
-- **Phone Numbers**: Masked in all logs and dashboard views (`+9198*****210`) using `mask_phone_number()`.
-- **Transcripts**: Configurable retention policy (default 30 days) via `purge_old_transcripts()`.
-- **Secrets**: Read exclusively from `.env`.
+- **`VoiceTransport` ABC**:
+  - `start() -> None`: Initializes transport lifecycle.
+  - `receive_audio() -> AsyncGenerator[bytes, None]`: Streams raw PCM16 16kHz mono frames.
+  - `send_audio(pcm_bytes: bytes) -> None`: Transmits synthesized PCM16 16kHz audio.
+  - `clear_audio() -> None`: Emits barge-in interrupt (`{"type": "clear"}`) to flush listener buffers.
+  - `send_event(event_type: str, data: dict) -> None`: Dispatches live transcripts and call state updates.
+  - `close() -> None`: Cleanly terminates the transport session.
 
-## Decision 7: Local Ingress & Telephony Tunneling
-- Use ngrok (`ngrok http 8000`) or Cloudflare Tunnel (`cloudflared tunnel --url http://localhost:8000`) to expose the local FastAPI server.
-- Webhook URL in Plivo Console: `https://<tunnel-domain>/webhook/plivo/answer`.
-- WebSocket URL in `<Stream>` XML: `wss://<tunnel-domain>/ws/plivo/stream`.
+---
+
+## Decision 3: Single Audio Format (PCM16 16 kHz Mono) & Provider Codec Audit
+
+To maximize audio quality and eliminate transcoding latency and quantization noise, the system adopts **PCM16 (linear 16-bit signed integer, 16,000 Hz, mono)** end-to-end.
+
+### STT & TTS Provider Compatibility Matrix
+
+| Provider & Component | Target Audio Format | Documentation URL | Paraphrased Claim | Verification Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Browser Web Audio Capture** | PCM16, 16 kHz, Mono | [W3C Web Audio API Spec](https://www.w3.org/TR/webaudio/) | AudioWorklet processes native input audio and linear interpolation downsamples to 16 kHz 16-bit signed integer frames. | **VERIFIED** |
+| **Deepgram Live Streaming STT** | `linear16`, 16 kHz, Mono | [Deepgram Audio Formats](https://developers.deepgram.com/docs/streaming-audio-formats) | Deepgram's live WebSocket endpoint ingests raw uncompressed PCM audio with query parameters `encoding=linear16&sample_rate=16000&channels=1`. | **VERIFIED** |
+| **OpenAI Whisper STT** | Multipart Audio File | [OpenAI Audio API Reference](https://platform.openai.com/docs/api-reference/audio/createTranscription) | Whisper API (`/v1/audio/transcriptions`) is a file-upload REST endpoint (mp3/wav) for batch transcription, not a real-time bidirectional streaming WebSocket. | **UNVERIFIED (Incompatible with live streaming)** |
+| **Deepgram Aura Streaming TTS** | `linear16`, 16 kHz, Mono | [Deepgram Aura TTS Streaming](https://developers.deepgram.com/docs/tts-streaming) | Aura WebSocket and REST streaming endpoints output uncompressed 16 kHz PCM using `encoding=linear16&sample_rate=16000`. | **VERIFIED** |
+| **Cartesia Sonic Streaming TTS** | `pcm_16000`, 16 kHz, Mono | [Cartesia Sonic WebSocket API](https://docs.cartesia.ai/build-with-sonic/stream-audio) | Cartesia's WebSocket streaming API delivers raw 16 kHz 16-bit linear PCM audio chunks when requested with format `pcm_16000`. | **VERIFIED** |
+| **ElevenLabs Streaming TTS** | `pcm_16000`, 16 kHz, Mono | [ElevenLabs Text-to-Speech Stream](https://elevenlabs.io/docs/api-reference/text-to-speech-stream) | ElevenLabs streaming API delivers raw 16 kHz 16-bit mono PCM chunks when query parameter `output_format=pcm_16000` is specified. | **VERIFIED** |
+| **Proprietary SIP / WebRTC Codecs** | G.722, Opus, AMR-WB | N/A | Untested; requires external gateway and RTP transcoding pipeline to bridge to 16 kHz linear PCM. | **UNVERIFIED** |
+
+---
+
+## Decision 4: Turn Latency Definition
+
+### Definition
+$$\text{Turn Latency} = T_{\text{first agent audio byte sent over WebSocket}} - T_{\text{end of caller speech}}$$
+
+- **Scope**: Measures server-side turn turnaround time:
+  $$\text{Turn Latency} = T_{\text{STT processing}} + T_{\text{LLM first chunk}} + T_{\text{TTS first frame synthesis}}$$
+- **Exclusions**: Explicitly excludes client-side hardware microphone buffering, browser Web Audio scheduling delay, and network round-trip transit.
+- **Reporting**: Architectural design target: `<1000ms` (unmeasured target; formal empirical latency benchmarks have not been executed as Phase 3 is not started). Server turnaround will be recorded in `turn_latencies` database records.
+
+---
+
+## Decision 5: Instant Barge-In with Client-Side Buffer Flushing
+
+- When the caller speaks while the agent is speaking:
+  1. The server's barge-in evaluator checks speech criteria (word count $\ge 2$, confidence $\ge 0.70$, debounce $>200\text{ms}$).
+  2. If satisfied, the server halts its TTS synthesis task immediately and sends `{"type": "clear"}` over the WebSocket.
+  3. The browser client receives `{"type": "clear"}`, immediately stops all active `AudioBufferSourceNode` instances, and resets `nextPlaybackTime = audioContext.currentTime`.
+  4. Audio playback halts instantly in the user's ears without residual buffer spillover.
+
+---
+
+## Decision 6: Notification System & Human Handoff Redesign
+
+1. **Appointment Confirmations via `Notifier`**:
+   - Replaced Plivo SMS with `Notifier` interface.
+   - Default implementation: `DatabaseNotifier` writes confirmation records into the SQLite `notifications` table.
+   - Displays confirmation details in the Streamlit management dashboard without external carrier fees or delivery failures.
+2. **Human Handoff as Callback Request**:
+   - `transfer_to_human` records a priority callback request with reason, customer contact details, and timestamp.
+   - The agent informs the caller: *"I have registered your request. One of our clinic team members will follow up with you shortly."*
+   - Eliminates complex telephony carrier bridging while accurately capturing user intent.
+
+---
+
+## Decision 7: Security & Network Surface
+
+- **Default Binding**: Binds to `127.0.0.1` (localhost).
+- **No Public Tunnels Required**: Does not require ngrok or Cloudflare Tunnel for development or evaluation.
+- **WebSocket Security**:
+  - Validates `Origin` header against `ALLOWED_ORIGINS` (rejecting unpermitted external sites).
+  - Optional shared secret `CALL_TOKEN` validated via query parameter `?token=...` or headers. Fails closed with WebSocket close code `1008` (Policy Violation) if configured and invalid.

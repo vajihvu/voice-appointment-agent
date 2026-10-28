@@ -29,16 +29,16 @@ class Base(DeclarativeBase):
 
 
 class Call(Base):
-    """Represents a phone call session received via Plivo."""
+    """Represents a voice call session."""
 
     __tablename__ = "calls"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    plivo_call_uuid: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    external_call_id: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True, nullable=True)
     caller_phone: Mapped[str] = mapped_column(String(32), index=True)
     start_time: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="in_progress")  # in_progress, completed, failed, transferred
+    status: Mapped[str] = mapped_column(String(32), default="in_progress")  # in_progress, completed, failed, callback_requested
     outcome: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # booked, inquiry, cancelled, human_handoff
     handoff_reason: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     total_duration_sec: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
@@ -49,6 +49,23 @@ class Call(Base):
     # Relationships
     latencies: Mapped[List["TurnLatency"]] = relationship("TurnLatency", back_populates="call", cascade="all, delete-orphan")
     appointments: Mapped[List["Appointment"]] = relationship("Appointment", back_populates="call")
+    notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="call", cascade="all, delete-orphan")
+
+
+class Notification(Base):
+    """Stores outgoing appointment confirmation messages and alerts for dashboard display."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    call_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("calls.id", ondelete="SET NULL"), nullable=True, index=True)
+    appointment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    recipient: Mapped[str] = mapped_column(String(64), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="recorded")  # recorded, delivered, failed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    call: Mapped[Optional["Call"]] = relationship("Call", back_populates="notifications")
 
 
 class TurnLatency(Base):
