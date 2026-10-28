@@ -84,6 +84,10 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                             "type": "string",
                             "description": "The requested service (e.g., 'Routine Cleaning', 'General Consultation', 'Teeth Whitening'). Defaults to 'General Consultation'.",
                         },
+                        "phone_confirmed": {
+                            "type": "boolean",
+                            "description": "Must be set to true only after reading the phone number back to the caller digit by digit and receiving an explicit confirmation/yes.",
+                        },
                     },
                     "required": ["name", "phone", "date", "slot"],
                 },
@@ -121,6 +125,10 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                         "phone": {
                             "type": "string",
                             "description": "Contact phone number for staff to call back. Always ask the caller if not already known.",
+                        },
+                        "phone_confirmed": {
+                            "type": "boolean",
+                            "description": "Must be set to true only after reading the phone number back to the caller digit by digit and receiving an explicit confirmation/yes.",
                         },
                     },
                     "required": ["reason"],
@@ -204,8 +212,16 @@ async def execute_tool(
         validated_phone = validate_and_normalize_phone(raw_phone)
         if not validated_phone:
             return {
-                "status": "error",
+                "status": "needs_phone",
                 "message": f"'{raw_phone}' is not a valid contact phone number. Please provide a valid phone number with area/country code.",
+            }
+
+        phone_confirmed = args.get("phone_confirmed", False)
+        if not phone_confirmed:
+            return {
+                "status": "needs_confirmation",
+                "phone": validated_phone,
+                "message": f"Please read the phone number {validated_phone} back digit-by-digit to the caller and obtain explicit confirmation before booking.",
             }
 
         try:
@@ -271,6 +287,15 @@ async def execute_tool(
                 "status": "needs_phone",
                 "reason": reason,
                 "message": "Please ask the caller for a valid contact phone number so our clinic team can follow up with them.",
+            }
+
+        phone_confirmed = args.get("phone_confirmed", False)
+        if not phone_confirmed:
+            return {
+                "status": "needs_confirmation",
+                "phone": validated_phone,
+                "reason": reason,
+                "message": f"Please read the phone number {validated_phone} back digit-by-digit to the caller and obtain explicit confirmation before registering the callback.",
             }
 
         logger.info(f"Human callback request logged: {reason} | Contact: {mask_phone_number(validated_phone)}")

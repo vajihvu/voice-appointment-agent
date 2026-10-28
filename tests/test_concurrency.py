@@ -57,7 +57,7 @@ async def test_concurrent_booking_race_condition():
                 tool_name="book_appointment",
                 arguments_json=(
                     f'{{"name": "Caller {caller_idx}", "phone": "+91987654321{caller_idx}", '
-                    f'"date": "{test_date}", "slot": "{target_slot}", "service": "Routine Cleaning"}}'
+                    f'"date": "{test_date}", "slot": "{target_slot}", "service": "Routine Cleaning", "phone_confirmed": true}}'
                 ),
             )
 

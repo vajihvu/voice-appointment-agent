@@ -47,17 +47,22 @@ The conversational session state machine (`CallSession`) is decoupled from under
 
 To maximize audio quality and eliminate transcoding latency and quantization noise, the system adopts **PCM16 (linear 16-bit signed integer, 16,000 Hz, mono)** end-to-end.
 
-### STT & TTS Provider Compatibility Matrix
+### Active STT & TTS Provider Compatibility Matrix
 
-| Provider & Component | Target Audio Format | Documentation URL | Paraphrased Claim | Verification Status |
+| Provider & Component | Target Audio Format | Full Documentation URL | Paraphrased Claim | Verification Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **Browser Web Audio Capture** | PCM16, 16 kHz, Mono | [W3C Web Audio API Spec](https://www.w3.org/TR/webaudio/) | AudioWorklet processes native input audio and linear interpolation downsamples to 16 kHz 16-bit signed integer frames. | **VERIFIED** |
-| **Deepgram Live Streaming STT** | `linear16`, 16 kHz, Mono | [Deepgram Audio Formats](https://developers.deepgram.com/docs/streaming-audio-formats) | Deepgram's live WebSocket endpoint ingests raw uncompressed PCM audio with query parameters `encoding=linear16&sample_rate=16000&channels=1`. | **VERIFIED** |
-| **OpenAI Whisper STT** | Multipart Audio File | [OpenAI Audio API Reference](https://platform.openai.com/docs/api-reference/audio/createTranscription) | Whisper API (`/v1/audio/transcriptions`) is a file-upload REST endpoint (mp3/wav) for batch transcription, not a real-time bidirectional streaming WebSocket. | **UNVERIFIED (Incompatible with live streaming)** |
-| **Deepgram Aura Streaming TTS** | `linear16`, 16 kHz, Mono | [Deepgram Aura TTS Streaming](https://developers.deepgram.com/docs/tts-streaming) | Aura WebSocket and REST streaming endpoints output uncompressed 16 kHz PCM using `encoding=linear16&sample_rate=16000`. | **VERIFIED** |
-| **Cartesia Sonic Streaming TTS** | `pcm_16000`, 16 kHz, Mono | [Cartesia Sonic WebSocket API](https://docs.cartesia.ai/build-with-sonic/stream-audio) | Cartesia's WebSocket streaming API delivers raw 16 kHz 16-bit linear PCM audio chunks when requested with format `pcm_16000`. | **VERIFIED** |
-| **ElevenLabs Streaming TTS** | `pcm_16000`, 16 kHz, Mono | [ElevenLabs Text-to-Speech Stream](https://elevenlabs.io/docs/api-reference/text-to-speech-stream) | ElevenLabs streaming API delivers raw 16 kHz 16-bit mono PCM chunks when query parameter `output_format=pcm_16000` is specified. | **VERIFIED** |
-| **Proprietary SIP / WebRTC Codecs** | G.722, Opus, AMR-WB | N/A | Untested; requires external gateway and RTP transcoding pipeline to bridge to 16 kHz linear PCM. | **UNVERIFIED** |
+| **Deepgram Live Streaming STT** | `linear16`, 16 kHz, Mono | https://developers.deepgram.com/docs/streaming-audio-formats | Live WebSocket streaming accepts uncompressed 16-bit linear PCM frames with query parameters `encoding=linear16&sample_rate=16000&channels=1`. | **VERIFIED** |
+| **Deepgram Aura Streaming TTS** | `linear16`, 16 kHz, Mono | https://developers.deepgram.com/docs/tts-streaming | Aura streaming endpoints return raw uncompressed 16 kHz 16-bit linear PCM frames when requested with `encoding=linear16&sample_rate=16000`. | **VERIFIED** |
+| **Browser Web Audio Capture** | PCM16, 16 kHz, Mono | https://www.w3.org/TR/webaudio/ | Internal codebase design: AudioWorklet captures mic input and downsamples to 16 kHz PCM16 frames; verified by unit tests, but real-world browser behavior remains UNVERIFIED until manual live test. | **UNVERIFIED (Pending manual browser testing)** |
+
+### Alternative Providers (Considered, Not Verified)
+The following providers were considered during architecture planning but are not verified in active code:
+- **OpenAI Whisper STT**: The OpenAI Whisper API (`/v1/audio/transcriptions`) is a file-upload REST endpoint designed for batch transcription, not a real-time bidirectional audio streaming WebSocket. Incompatible with low-latency live streaming.
+- **Cartesia Sonic Streaming TTS**: Explored as a low-latency voice model. Format parameters and live streaming behavior have not been verified against current documentation.
+- **ElevenLabs Streaming TTS**: Explored as an alternative voice option. Format parameters and streaming WebSocket behavior have not been verified against current documentation.
+
+### Known Limitations
+- **Linear Interpolation Resampling**: Both the client AudioWorklet and Python backend resamplers perform linear interpolation without an anti-aliasing low-pass filter. While computationally lightweight with sub-millisecond overhead, spectral aliasing is mathematically possible when downsampling from 44.1 kHz or 48 kHz to 16 kHz. Revisit with a windowed sinc or polyphase filter if live STT accuracy suffers.
 
 ---
 

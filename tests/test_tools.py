@@ -34,29 +34,54 @@ async def test_check_slots_execution(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_book_appointment_execution(db_session: AsyncSession):
     tomorrow = str(date.today() + timedelta(days=1))
-    res = await execute_tool(
+
+    # 1. Unconfirmed phone -> returns needs_confirmation and does NOT write to database
+    res_unconfirmed = await execute_tool(
         db_session=db_session,
         tool_name="book_appointment",
         arguments_json=(
             f'{{"name": "John Doe", "phone": "+919876543210", '
-            f'"date": "{tomorrow}", "slot": "10:00", "service": "Routine Cleaning"}}'
+            f'"date": "{tomorrow}", "slot": "10:00", "service": "Routine Cleaning", "phone_confirmed": false}}'
         ),
     )
-    assert res.get("status") == "success"
-    assert res.get("name") == "John Doe"
-    assert "appointment_id" in res
+    assert res_unconfirmed.get("status") == "needs_confirmation"
+    assert "confirm" in res_unconfirmed.get("message", "").lower()
+
+    # 2. Invalid phone number -> returns needs_phone
+    res_invalid_phone = await execute_tool(
+        db_session=db_session,
+        tool_name="book_appointment",
+        arguments_json=(
+            f'{{"name": "John Doe", "phone": "12345", '
+            f'"date": "{tomorrow}", "slot": "10:00", "service": "Routine Cleaning", "phone_confirmed": true}}'
+        ),
+    )
+    assert res_invalid_phone.get("status") == "needs_phone"
+
+    # 3. Confirmed phone -> successfully books appointment
+    res_confirmed = await execute_tool(
+        db_session=db_session,
+        tool_name="book_appointment",
+        arguments_json=(
+            f'{{"name": "John Doe", "phone": "+919876543210", '
+            f'"date": "{tomorrow}", "slot": "10:00", "service": "Routine Cleaning", "phone_confirmed": true}}'
+        ),
+    )
+    assert res_confirmed.get("status") == "success"
+    assert res_confirmed.get("name") == "John Doe"
+    assert "appointment_id" in res_confirmed
 
 
 @pytest.mark.asyncio
 async def test_cancel_appointment_execution(db_session: AsyncSession):
     tomorrow = str(date.today() + timedelta(days=1))
-    # 1. Book
+    # 1. Book with phone_confirmed=True
     book_res = await execute_tool(
         db_session=db_session,
         tool_name="book_appointment",
         arguments_json=(
             f'{{"name": "Jane Doe", "phone": "+919876543210", '
-            f'"date": "{tomorrow}", "slot": "11:00", "service": "Consultation"}}'
+            f'"date": "{tomorrow}", "slot": "11:00", "service": "Consultation", "phone_confirmed": true}}'
         ),
     )
     app_id = book_res["appointment_id"]
@@ -81,15 +106,32 @@ async def test_transfer_to_human_execution(db_session: AsyncSession):
     assert res_no_phone.get("status") == "needs_phone"
     assert "valid" in res_no_phone.get("message", "").lower()
 
-    # Case 2: With valid contact number provided
-    res_with_phone = await execute_tool(
+    # Case 2: Invalid phone number format -> needs_phone
+    res_bad_phone = await execute_tool(
         db_session=db_session,
         tool_name="transfer_to_human",
-        arguments_json='{"reason": "Severe toothache and swelling", "phone": "+919876543210"}',
+        arguments_json='{"reason": "Severe toothache and swelling", "phone": "not_a_phone"}',
     )
-    assert res_with_phone.get("status") == "callback_requested"
-    assert res_with_phone.get("phone") == "+919876543210"
-    assert "notified" in res_with_phone.get("message", "").lower()
+    assert res_bad_phone.get("status") == "needs_phone"
+
+    # Case 3: Valid contact number provided but unconfirmed -> needs_confirmation
+    res_unconfirmed = await execute_tool(
+        db_session=db_session,
+        tool_name="transfer_to_human",
+        arguments_json='{"reason": "Severe toothache and swelling", "phone": "+919876543210", "phone_confirmed": false}',
+    )
+    assert res_unconfirmed.get("status") == "needs_confirmation"
+    assert "confirm" in res_unconfirmed.get("message", "").lower()
+
+    # Case 4: With valid contact number and phone_confirmed=true -> callback_requested
+    res_confirmed = await execute_tool(
+        db_session=db_session,
+        tool_name="transfer_to_human",
+        arguments_json='{"reason": "Severe toothache and swelling", "phone": "+919876543210", "phone_confirmed": true}',
+    )
+    assert res_confirmed.get("status") == "callback_requested"
+    assert res_confirmed.get("phone") == "+919876543210"
+    assert "notified" in res_confirmed.get("message", "").lower()
 
 
 @pytest.mark.asyncio

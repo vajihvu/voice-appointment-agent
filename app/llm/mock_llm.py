@@ -83,6 +83,7 @@ class MockLLMProvider(LLMProvider):
                             "date": target_date,
                             "slot": "10:00",
                             "service": "Routine Cleaning",
+                            "phone_confirmed": True,
                         }),
                     }
                 ],
