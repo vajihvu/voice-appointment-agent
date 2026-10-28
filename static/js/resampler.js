@@ -38,6 +38,10 @@ function resampleFloat32ToPCM16(floatSamples, sourceRate, targetRate = 16000) {
   return resamplePCM16(int16Samples, sourceRate, targetRate);
 }
 
+// ES module exports (used by AudioWorklet module import)
+export { resamplePCM16, resampleFloat32ToPCM16 };
+
+// CommonJS exports (used by Node.js tests)
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { resamplePCM16, resampleFloat32ToPCM16 };
 }
