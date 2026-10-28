@@ -492,10 +492,14 @@
         source.connect(analyser);
         drawVisualizer();
 
-        // Load AudioWorklet from Blob
-        const blob = new Blob([workletCode], { type: 'application/javascript' });
-        const workletUrl = URL.createObjectURL(blob);
-        await audioCtx.audioWorklet.addModule(workletUrl);
+        // Load AudioWorklet from standalone module with Blob fallback
+        try {
+          await audioCtx.audioWorklet.addModule('/static/js/pcm_worklet.js');
+        } catch (e) {
+          const blob = new Blob([workletCode], { type: 'application/javascript' });
+          const workletUrl = URL.createObjectURL(blob);
+          await audioCtx.audioWorklet.addModule(workletUrl);
+        }
 
         workletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
         source.connect(workletNode);
