@@ -5,6 +5,11 @@ import re
 import subprocess
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Prohibited file extensions and names in git staging
 BLOCKED_FILE_PATTERNS = [
     re.compile(r"^\.env(\..+)?$", re.IGNORECASE),  # .env, .env.local, .env.production
