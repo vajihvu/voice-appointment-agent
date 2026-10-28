@@ -55,7 +55,7 @@ To safeguard sensitive credentials (API tokens, private keys, and database binar
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ### 3. Configuration
